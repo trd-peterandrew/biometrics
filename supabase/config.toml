@@ -1,0 +1,23 @@
+# supabase/config.toml
+# Local Supabase development configuration.
+# Run `supabase start` to spin up a local Supabase stack.
+
+[api]
+enabled = true
+port = 54321
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+# Disable JWT verification for the webauthn function so anon-key callers work.
+# In production, switch verify_jwt = true and pass the user's JWT instead.
+[functions.webauthn]
+verify_jwt = false
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
