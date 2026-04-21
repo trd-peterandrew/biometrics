@@ -89,7 +89,9 @@ export function useWebAuthn() {
         err.name === 'NotAllowedError'   ? 'Biometric prompt was cancelled or timed out.' :
         err.name === 'NotSupportedError' ? 'WebAuthn is not supported on this device/browser.' :
         err.name === 'InvalidStateError' ? 'This credential is already registered.' :
-        err.message
+        (typeof err.message === 'string' && err.message) ? err.message :
+        (typeof err === 'string') ? err :
+        'An unexpected error occurred. Please try again.'
       setError(msg)
       setSuccess(null)
       return { ok: false, error: msg }
@@ -135,7 +137,9 @@ export function useWebAuthn() {
       const msg =
         err.name === 'NotAllowedError'   ? 'Biometric prompt was cancelled or timed out.' :
         err.name === 'NotSupportedError' ? 'WebAuthn is not supported on this device/browser.' :
-        err.message
+        (typeof err.message === 'string' && err.message) ? err.message :
+        (typeof err === 'string') ? err :
+        'An unexpected error occurred. Please try again.'
       setError(msg)
       setSuccess(null)
       return { ok: false, error: msg }

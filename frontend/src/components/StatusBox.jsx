@@ -6,7 +6,7 @@ export default function StatusBox({ loading, error, success }) {
 
   const type  = error ? 'error' : loading ? 'loading' : 'success'
   const icon  = error ? '⚠️'   : loading ? '⏳'       : '✅'
-  const text  = error || success || 'Processing…'
+  const text  = String(error || success || 'Processing…')
 
   return (
     <div className={`status-box ${type}`} role="status" aria-live="polite">
