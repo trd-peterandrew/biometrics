@@ -404,25 +404,37 @@ Deno.serve(async (req: Request) => {
         return new Response('ok', { headers: getCORSHeaders(req) })
     }
 
-    const url = new URL(req.url)
-    // Strip the function prefix so we match on the last path segment.
-    // Full URL pattern:  /functions/v1/webauthn/<route>
-    const route = url.pathname.split('/').pop()
-
-    if (req.method !== 'POST') return error('Method not allowed.', req, 405)
-
-    let body: Record<string, unknown>
+    // ── Global safety net ────────────────────────────────────────────────
+    // Any unhandled exception must still return CORS headers so the browser
+    // can read the error body instead of seeing a bare network failure.
     try {
-        body = await req.json()
-    } catch {
-        return error('Invalid JSON body.', req, 400)
-    }
+        const url = new URL(req.url)
+        // Strip the function prefix so we match on the last path segment.
+        // Full URL pattern:  /functions/v1/webauthn/<route>
+        const route = url.pathname.split('/').pop()
 
-    switch (route) {
-        case 'register-options': return handleRegisterOptions(req, body as { userId: string; username: string })
-        case 'register': return handleRegister(req, body as { userId: string; username: string; attResp: Record<string, unknown> })
-        case 'auth-options': return handleAuthOptions(req, body as { userId: string })
-        case 'verify': return handleVerify(req, body as { userId: string; assertResp: Record<string, unknown> })
-        default: return error(`Unknown route: ${route}`, req, 404)
+        if (req.method !== 'POST') return error('Method not allowed.', req, 405)
+
+        let body: Record<string, unknown>
+        try {
+            body = await req.json()
+        } catch {
+            return error('Invalid JSON body.', req, 400)
+        }
+
+        switch (route) {
+            case 'register-options': return handleRegisterOptions(req, body as { userId: string; username: string })
+            case 'register': return handleRegister(req, body as { userId: string; username: string; attResp: Record<string, unknown> })
+            case 'auth-options': return handleAuthOptions(req, body as { userId: string })
+            case 'verify': return handleVerify(req, body as { userId: string; assertResp: Record<string, unknown> })
+            default: return error(`Unknown route: ${route}`, req, 404)
+        }
+    } catch (topLevelErr: unknown) {
+        const msg = topLevelErr instanceof Error ? topLevelErr.message : 'Unexpected server error'
+        console.error('[webauthn] Unhandled top-level error:', msg)
+        return new Response(JSON.stringify({ error: msg }), {
+            status: 500,
+            headers: { ...getCORSHeaders(req), 'Content-Type': 'application/json' },
+        })
     }
 })

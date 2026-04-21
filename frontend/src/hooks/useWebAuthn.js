@@ -21,20 +21,27 @@ const FUNCTION_BASE = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/webauth
  * Attaches the anon key as Authorization header (required by Supabase).
  */
 async function callEdgeFunction(path, body) {
-    const res = await fetch(`${FUNCTION_BASE}${path}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            // Supabase Edge Functions require the anon key for public access.
-            // For authenticated routes you would use the user's JWT instead.
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify(body),
-    })
+    let res
+    try {
+        res = await fetch(`${FUNCTION_BASE}${path}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                // Supabase Edge Functions require the anon key for public access.
+                // For authenticated routes you would use the user's JWT instead.
+                Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify(body),
+        })
+    } catch (networkErr) {
+        // WebKit/Safari throws TypeError "Load failed" when the browser cannot
+        // complete the HTTP request (CORS blocked on server crash, network offline, etc.)
+        throw new Error(`Network error calling ${path}: ${networkErr.message}`)
+    }
 
     if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }))
-        throw new Error(err.error || `HTTP ${res.status}`)
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status} ${res.statusText}` }))
+        throw new Error(`[${res.status}] ${err.error || res.statusText}`)
     }
 
     return res.json()
