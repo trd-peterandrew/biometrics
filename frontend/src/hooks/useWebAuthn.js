@@ -65,6 +65,19 @@ export function useWebAuthn() {
       setSuccess('Fetching registration options…')
       const options = await callEdgeFunction('/register-options', { userId, username })
 
+      // Guard: startRegistration internally calls .replace() on challenge & user.id.
+      // If the server returned malformed options (undefined fields), validate here
+      // to surface a readable error instead of a cryptic crash.
+      const missingRegFields = []
+      if (typeof options?.challenge !== 'string') missingRegFields.push('challenge')
+      if (typeof options?.user?.id   !== 'string') missingRegFields.push('user.id')
+      if (missingRegFields.length > 0) {
+        throw new Error(
+          `Server returned invalid registration options (missing: ${missingRegFields.join(', ')}). ` +
+          `Raw: ${JSON.stringify(options)}`
+        )
+      }
+
       // ── Step 2: Trigger the browser/OS biometric prompt ──
       // startRegistration() calls navigator.credentials.create() under
       // the hood and returns the attestation response as JSON-serialisable
@@ -116,6 +129,16 @@ export function useWebAuthn() {
       // a fresh challenge plus the list of allowedCredentials.
       setSuccess('Fetching authentication challenge…')
       const options = await callEdgeFunction('/auth-options', { userId })
+
+      // Guard: same .replace() risk exists in startAuthentication.
+      const missingAuthFields = []
+      if (typeof options?.challenge !== 'string') missingAuthFields.push('challenge')
+      if (missingAuthFields.length > 0) {
+        throw new Error(
+          `Server returned invalid auth options (missing: ${missingAuthFields.join(', ')}). ` +
+          `Raw: ${JSON.stringify(options)}`
+        )
+      }
 
       // ── Step 2: Trigger biometric prompt for assertion ──
       // startAuthentication() calls navigator.credentials.get() internally.

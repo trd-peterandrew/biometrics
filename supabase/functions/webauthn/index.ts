@@ -101,25 +101,43 @@ async function handleRegisterOptions(req: Request, body: { userId: string; usern
     .select('credential_id')
     .eq('user_id', userId)
 
-  const options = await generateRegistrationOptions({
-    rpName: RP_NAME,
-    rpID: config.rpID,
-    userID: new TextEncoder().encode(userId) as any, // Must be a BufferSource
-    userName: username,
-    userDisplayName: username,
-    // Prefer platform authenticators (Touch ID, Face ID, Windows Hello)
-    // rather than roaming keys (USB security keys).
-    authenticatorSelection: {
-      authenticatorAttachment: 'platform',
-      userVerification: 'required',
-      residentKey: 'preferred',
-    },
-    // Populate excludeCredentials from the DB to prevent ghost registration
-    excludeCredentials: (existing || []).map(c => ({
-      id: c.credential_id,
-      type: 'public-key'
-    })),
-  })
+  let options
+  try {
+    options = await generateRegistrationOptions({
+      rpName: RP_NAME,
+      rpID: config.rpID,
+      // NOTE: Do NOT pass userID as Uint8Array — Deno's npm compat layer silently
+      // produces undefined for user.id, crashing the browser library's base64url
+      // decoder. We omit it; the library generates a valid random user.id instead.
+      // Authentication uses credential_id for matching, not user.id.
+      userName: username,
+      userDisplayName: username,
+      // Prefer platform authenticators (Touch ID, Face ID, Windows Hello)
+      // rather than roaming keys (USB security keys).
+      authenticatorSelection: {
+        authenticatorAttachment: 'platform',
+        userVerification: 'required',
+        residentKey: 'preferred',
+      },
+      // Populate excludeCredentials from the DB to prevent ghost registration
+      excludeCredentials: (existing || []).map(c => ({
+        id: c.credential_id,
+        type: 'public-key'
+      })),
+    })
+  } catch (err: any) {
+    console.error('[webauthn] generateRegistrationOptions failed:', err?.message ?? err)
+    return error('Failed to generate registration options', req, 500)
+  }
+
+  // Sanity-check: challenge and user.id must be strings before we store/return them
+  if (typeof options?.challenge !== 'string' || typeof options?.user?.id !== 'string') {
+    console.error('[webauthn] Invalid options shape:', JSON.stringify({
+      challengeType: typeof options?.challenge,
+      userIdType: typeof options?.user?.id,
+    }))
+    return error('Server produced malformed registration options', req, 500)
+  }
 
   // Store the challenge in the database
   const { error: dbErr } = await supabase
