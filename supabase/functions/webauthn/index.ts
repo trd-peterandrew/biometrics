@@ -21,6 +21,7 @@ import {
     verifyAuthenticationResponse,
 } from 'npm:@simplewebauthn/server@10'
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import * as bcrypt from 'npm:bcryptjs'
 
 // ── Config ───────────────────────────────────────────────────────────
 // rpID must match the domain (or "localhost") that the browser sees.
@@ -395,6 +396,104 @@ async function handleVerify(req: Request, body: {
     }, req)
 }
 
+// ── 5. /password-register ─────────────────────────────────────────────
+async function handlePasswordRegister(req: Request, body: Record<string, unknown>) {
+    const username = body.username as string | undefined
+    const password = body.password as string | undefined
+
+    if (!username || !password) {
+        return error('Username and password are required', req, 400)
+    }
+
+    const supabase = getSupabase()
+
+    let passwordHash;
+    try {
+        const salt = await bcrypt.genSalt(10)
+        passwordHash = await bcrypt.hash(password, salt)
+    } catch (e) {
+        console.error('[auth] bcrypt error:', e)
+        return error('Internal server error', req, 500)
+    }
+
+    const { data: user, error: dbErr } = await supabase
+        .from('auth_users')
+        .insert({
+            username: username.toLowerCase().trim(),
+            password_hash: passwordHash,
+        })
+        .select('id, username')
+        .single()
+
+    if (dbErr) {
+        if (dbErr.code === '23505') { // unique violation
+            return error('Username already taken', req, 409)
+        }
+        console.error('[auth] DB insert error:', dbErr.message)
+        return error('Internal server error', req, 500)
+    }
+
+    return json({ message: 'User registered successfully', user }, req, 201)
+}
+
+// ── 6. /password-login ────────────────────────────────────────────────
+async function handlePasswordLogin(req: Request, body: Record<string, unknown>) {
+    const username = body.username as string | undefined
+    const password = body.password as string | undefined
+    const rememberMe = body.rememberMe as boolean | undefined
+
+    if (!username || !password) {
+        return error('Username and password are required', req, 400)
+    }
+
+    const supabase = getSupabase()
+
+    const { data: user, error: dbErr } = await supabase
+        .from('auth_users')
+        .select('id, username, password_hash')
+        .eq('username', username.toLowerCase().trim())
+        .single()
+
+    if (dbErr || !user) {
+        return error('Invalid credentials', req, 401)
+    }
+
+    let isValid = false;
+    try {
+        isValid = await bcrypt.compare(password, user.password_hash)
+    } catch (e) {
+        console.error('[auth] bcrypt verify error:', e)
+        return error('Internal server error', req, 500)
+    }
+
+    if (!isValid) {
+        return error('Invalid credentials', req, 401)
+    }
+
+    const token = crypto.randomUUID()
+    const expiresInDays = rememberMe ? 7 : 1/24 // 7 days or 1 hour
+    const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString()
+
+    const { error: sessionErr } = await supabase
+        .from('auth_sessions')
+        .insert({
+            user_id: user.id,
+            token,
+            expires_at: expiresAt,
+        })
+
+    if (sessionErr) {
+        console.error('[auth] Session insert error:', sessionErr.message)
+        return error('Internal server error', req, 500)
+    }
+
+    return json({
+        message: 'Login successful',
+        session: { token, expiresAt },
+        user: { id: user.id, username: user.username }
+    }, req)
+}
+
 // ====================================================================
 // MAIN HANDLER  (Deno HTTP)
 // ====================================================================
@@ -427,6 +526,8 @@ Deno.serve(async (req: Request) => {
             case 'register': return handleRegister(req, body as { userId: string; username: string; attResp: Record<string, unknown> })
             case 'auth-options': return handleAuthOptions(req, body as { userId: string })
             case 'verify': return handleVerify(req, body as { userId: string; assertResp: Record<string, unknown> })
+            case 'password-register': return handlePasswordRegister(req, body)
+            case 'password-login': return handlePasswordLogin(req, body)
             default: return error(`Unknown route: ${route}`, req, 404)
         }
     } catch (topLevelErr: unknown) {

@@ -3,9 +3,11 @@
 // Root component that manages the session state.
 // Shows: Register → Login → Authenticated dashboard
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import RegisterBiometric from './components/RegisterBiometric'
 import LoginBiometric    from './components/LoginBiometric'
+import RegisterPassword  from './components/RegisterPassword'
+import LoginPassword     from './components/LoginPassword'
 import './index.css'
 
 export default function App() {
@@ -13,14 +15,32 @@ export default function App() {
   const [session, setSession] = useState(null)
   // 'login' | 'register'
   const [view, setView] = useState('login')
+  // 'biometric' | 'password'
+  const [authMethod, setAuthMethod] = useState('biometric')
 
-  const handleAuthenticated = (sessionData) => {
+  useEffect(() => {
+    // Try to restore session on mount
+    const storedSession = localStorage.getItem('auth_session') || sessionStorage.getItem('auth_session')
+    if (storedSession) {
+      try {
+        setSession(JSON.parse(storedSession))
+      } catch (e) {
+        // ignore invalid JSON
+      }
+    }
+  }, [])
+
+  const handleAuthenticated = (sessionData, rememberMe = false) => {
     setSession(sessionData)
+    const storage = rememberMe ? localStorage : sessionStorage
+    storage.setItem('auth_session', JSON.stringify(sessionData))
   }
 
   const handleLogout = () => {
     setSession(null)
     setView('login')
+    localStorage.removeItem('auth_session')
+    sessionStorage.removeItem('auth_session')
   }
 
   return (
@@ -61,6 +81,23 @@ export default function App() {
         {/* ── Main Content ── */}
         {!session ? (
           <>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.03)', padding: '0.25rem', borderRadius: 'var(--radius-md)' }}>
+              <button 
+                onClick={() => setAuthMethod('biometric')}
+                className={`btn ${authMethod === 'biometric' ? 'btn-primary' : ''}`}
+                style={authMethod !== 'biometric' ? { background: 'transparent', color: 'var(--text-secondary)', boxShadow: 'none' } : { padding: '0.6rem 1rem' }}
+              >
+                🖐️ Biometric
+              </button>
+              <button 
+                onClick={() => setAuthMethod('password')}
+                className={`btn ${authMethod === 'password' ? 'btn-primary' : ''}`}
+                style={authMethod !== 'password' ? { background: 'transparent', color: 'var(--text-secondary)', boxShadow: 'none' } : { padding: '0.6rem 1rem' }}
+              >
+                🔑 Password
+              </button>
+            </div>
+
             {/* Tab switcher */}
             <div className="divider">
               {view === 'login' ? (
@@ -98,9 +135,13 @@ export default function App() {
 
             {/* Active component */}
             {view === 'login' ? (
-              <LoginBiometric onAuthenticated={handleAuthenticated} />
+              authMethod === 'biometric'
+                ? <LoginBiometric onAuthenticated={handleAuthenticated} />
+                : <LoginPassword onAuthenticated={handleAuthenticated} />
             ) : (
-              <RegisterBiometric onRegistered={() => setView('login')} />
+              authMethod === 'biometric'
+                ? <RegisterBiometric onRegistered={() => setView('login')} />
+                : <RegisterPassword onRegistered={() => setView('login')} />
             )}
           </>
         ) : (
